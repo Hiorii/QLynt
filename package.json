@@ -1,5 +1,12 @@
 {
+  "name": "qlynt-extension",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -p tsconfig.json --watch"
+  },
   "devDependencies": {
-    "supabase": "^2.72.9"
+    "typescript": "^5.5.0"
   }
 }
