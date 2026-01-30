@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "QA Copilot (MVP)",
+  "version": "0.0.1",
+  "description": "MVP: detects Jira issue pages and injects a sidebar.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://*.atlassian.net/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.atlassian.net/*"],
+      "js": [
+        "src/core/bootstrap.js",
+        "src/core/dom.js",
+        "src/features/settings.store.js",
+        "src/core/jira-parser.js",
+        "src/features/ac.detect.js",
+        "src/features/checklist.dryrun.js",
+        "src/ui/panel.js",
+        "src/core/issue-detect.js",
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "QA Copilot",
+    "default_popup": "src/ui/popup.html"
+  }
+}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>QA Copilot</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 12px;
+        width: 320px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: #555;
+        margin-top: 10px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+      }
+      button {
+        margin-top: 12px;
+        padding: 8px 10px;
+        border: 1px solid #ddd;
+        background: #fff;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      .row button {
+        flex: 1;
+      }
+      #status {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #2f6f2f;
+        display: none;
+      }
+      #warn {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #b45309;
+      }
+      .hint {
+        font-size: 11px;
+        color: #666;
+        margin-top: 4px;
+        line-height: 1.25;
+      }
+    </style>
+  </head>
+  <body>
+    <h3 style="margin: 0 0 6px">QA Copilot</h3>
+    <div id="warn">
+      Te wartości są zapisywane lokalnie w przeglądarce (storage rozszerzenia).
+    </div>
+
+    <label>Supabase Function URL (Checklist)</label>
+    <input
+      id="fnUrl"
+      placeholder="https://xxxx.functions.supabase.co/analyze-ticket"
+    />
+    <div class="hint">
+      To jest endpoint, który zwraca checklistę (analyze-ticket).
+    </div>
+
+    <label>Supabase Function URL (Generate Test Case)</label>
+    <input
+      id="tcFnUrl"
+      placeholder="https://xxxx.functions.supabase.co/generate-test-case"
+    />
+    <div class="hint">
+      To jest endpoint, który generuje 1 test case z 1 punktu checklisty.
+    </div>
+
+    <label>Supabase anon/public key (JWT zaczynający się od ey...)</label>
+    <input id="anonKey" placeholder="eyJhbGciOi..." />
+    <div class="hint">
+      Używamy tego jako apikey + Authorization Bearer (na MVP).
+    </div>
+
+    <label>Supabase Function URL (bulk testcases)</label>
+    <input
+      id="fnUrlBulk"
+      placeholder="https://xxxx.functions.supabase.co/generate-testcases-bulk"
+    />
+
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="clear">Clear</button>
+    </div>
+
+    <div id="status">Saved ✅</div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
