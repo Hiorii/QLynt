@@ -7,6 +7,7 @@
     "build:watch": "tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
+    "@types/chrome": "^0.1.36",
     "typescript": "^5.5.0"
   }
 }

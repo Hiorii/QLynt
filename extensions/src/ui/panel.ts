@@ -1,8 +1,122 @@
+export {};
+
+type Severity = "must" | "should" | "nice" | string;
+
+type ChecklistItem = {
+  id: string;
+  text: string;
+  severity?: Severity;
+};
+
+type Checklist = {
+  checklistTitle?: string;
+  items?: ChecklistItem[];
+};
+
+type TestcaseStep = { content: string; expected: string };
+
+type Testcase = {
+  title: string;
+  preconditions?: string;
+  steps: TestcaseStep[];
+};
+
+type BulkResultOk = {
+  ok: true;
+  seed: { id: string; text: string; severity?: Severity };
+  testcase: Testcase;
+};
+
+type BulkResultFail = {
+  ok: false;
+  seed?: { id?: string; text?: string; severity?: Severity };
+  error?: string;
+};
+
+type BulkResult = BulkResultOk | BulkResultFail;
+
+type BulkResponse = {
+  ok: true;
+  issueKey: string;
+  stats?: { ok?: number; errors?: number; model?: string };
+  results?: BulkResult[];
+};
+
+type ChecklistResponse = {
+  ok: true;
+  issueKey: string;
+  checklist?: Checklist;
+};
+
+type TicketContext = {
+  title?: string;
+  description?: string;
+  descriptionPreview?: string;
+};
+
+type Settings = {
+  acSynonyms: string[];
+  detectFromJiraFieldsDom: boolean;
+  detectFromDescription: boolean;
+  detectFromGherkin: boolean;
+};
+
+type QAState = {
+  settings: Settings;
+  lastIssueKey?: string;
+  lastChecklist?: Checklist | null;
+  testcasesByItemId?: Record<string, Testcase>;
+  lastGeneratedTestcase?: Testcase | null;
+};
+
+type QACopilotAPI = {
+  state: QAState;
+  panel?: {
+    renderIssue: (issueKey: string) => void;
+    cleanup: () => void;
+  };
+  settings: {
+    DEFAULT_SETTINGS: Settings;
+    save: (s: Settings) => Promise<void>;
+  };
+  jiraParser: {
+    extractTicketContext: (issueKey: string) => TicketContext;
+  };
+  acDetect: {
+    detectAcceptanceCriteria: (title?: string, description?: string) => boolean;
+  };
+};
+
+type StorageShape = {
+  qa_fn_url_checklist?: string;
+  qa_fn_url_bulk?: string;
+  qa_apikey?: string;
+};
+
+const storageGet = (keys: (keyof StorageShape)[]) =>
+  new Promise<StorageShape>((resolve) => {
+    chrome.storage.local.get(keys as string[], (res) => resolve(res as StorageShape));
+  });
+
 (() => {
   window.QA_COPILOT = window.QA_COPILOT || {};
-  const log = (...args) => console.log("[QA Copilot]", ...args);
+
+  const log = (...args: unknown[]) => console.log("[QA Copilot]", ...args);
 
   const PANEL_ID = "qa-copilot-panel";
+
+  type StorageKeys = {
+  qa_fn_url_checklist?: string;
+  qa_fn_url_bulk?: string;
+  qa_apikey?: string;
+};
+
+const storageGet = (keys: (keyof StorageKeys)[]): Promise<StorageKeys> => {
+  return new Promise<StorageKeys>((resolve) => {
+    chrome.storage.local.get(keys as string[], (res) => resolve(res as StorageKeys));
+  });
+};
+
 
   const createPanel = () => {
     const panel = document.createElement("div");
@@ -79,12 +193,6 @@
         <!-- Checklist -->
         <div style="margin-bottom: 12px;">
           <strong>Suggested regression checklist</strong>
-          <button id="qa-generate-testcase"
-            style="margin-top: 6px; padding:8px 10px; border:1px solid #ddd; background:#fff; border-radius:8px; cursor:pointer;">
-            Generate test case (from 1st item)
-          </button>
-
-          <div id="qa-testcase" style="margin-top:10px; font-size:12px; line-height:1.35; white-space:pre-wrap; background:#f7f7f7; border:1px solid #eee; border-radius:8px; padding:8px;"></div>
 
           <div id="qa-checklist-status" style="margin-top:6px; font-size:12px; color:#666;"></div>
           <ul id="qa-checklist" style="padding-left: 16px; margin-top: 6px;"></ul>
@@ -96,7 +204,6 @@
           <div id="qa-testcases"></div>
         </div>
 
-
         <!-- Actions -->
         <div>
           <strong>Actions</strong><br/>
@@ -106,28 +213,12 @@
             Generate checklist
           </button>
 
-          <button id="qa-generate-selected-testcases"
-            style="margin-top: 8px; padding:8px 10px; border:1px solid #ddd; background:#fff; border-radius:8px; cursor:pointer; width:100%;">
-            Generate selected test cases
-          </button>
-
           <button id="qa-generate-testcases-bulk"
             style="margin-top: 6px; padding:8px 10px; border:1px solid #ddd; background:#fff; border-radius:8px; cursor:pointer;">
             Generate ALL test cases
           </button>
 
-
           <div id="qa-selected-info" style="margin-top:6px; font-size:12px; color:#666;"></div>
-        </div>
-
-        <div style="margin-bottom: 12px;">
-          <strong>Test case preview (TestRail-ready)</strong>
-          <div id="qa-tc-status" style="margin-top:6px; font-size:12px; color:#666;"></div>
-          <pre id="qa-tc-preview" style="margin-top:6px; padding:8px; background:#f7f7f7; border:1px solid #eee; border-radius:8px; max-height:220px; overflow:auto; font-size:12px; white-space:pre-wrap;"></pre>
-          <button id="qa-export-json"
-            style="margin-top: 6px; padding:8px 10px; border:1px solid #ddd; background:#fff; border-radius:8px; cursor:pointer;">
-            Export JSON
-          </button>
         </div>
       </div>
     `;
@@ -142,11 +233,13 @@
       borderLeft: "1px solid #ddd",
       zIndex: "99999",
       boxShadow: "-2px 0 6px rgba(0,0,0,0.1)",
-    });
+    } as Partial<CSSStyleDeclaration>);
 
     document.body.appendChild(panel);
+
     wireSettingsUI(panel);
     wireActionsUI(panel);
+
     log("Panel injected (full + checklist)");
     return panel;
   };
@@ -154,65 +247,60 @@
   const ensurePanelMounted = () => {
     let panel = document.getElementById(PANEL_ID);
     if (!panel) panel = createPanel();
-    return panel;
+    return panel as HTMLElement;
   };
 
-  const flashSaved = (panel) => {
-    const el = panel.querySelector("#qa-settings-status");
+  const flashSaved = (panel: HTMLElement) => {
+    const el = panel.querySelector("#qa-settings-status") as HTMLElement | null;
     if (!el) return;
     el.style.display = "block";
-    setTimeout(() => (el.style.display = "none"), 1200);
+    setTimeout(() => {
+      el.style.display = "none";
+    }, 1200);
   };
 
   const ensureState = () => {
-    window.QA_COPILOT.state = window.QA_COPILOT.state || {};
-    window.QA_COPILOT.state.testcasesByItemId =
-      window.QA_COPILOT.state.testcasesByItemId || {};
-    window.QA_COPILOT.state.lastGeneratedTestcase =
-      window.QA_COPILOT.state.lastGeneratedTestcase || null;
+    const copilot = window.QA_COPILOT as QACopilotAPI;
+
+    copilot.state = (copilot.state as QAState) || ({} as QAState);
+    copilot.state.testcasesByItemId = copilot.state.testcasesByItemId || {};
+    copilot.state.lastGeneratedTestcase = copilot.state.lastGeneratedTestcase || null;
+    copilot.state.lastChecklist = copilot.state.lastChecklist ?? null;
   };
 
-  const copyToClipboard = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // fallback
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
-      return true;
-    }
-  };
-
-  const severityToRisk = (sev) => {
+  const severityToRisk = (sev?: string) => {
     const s = (sev || "").toLowerCase();
     if (s === "must") return "HIGH";
     if (s === "should") return "MEDIUM";
     return "LOW";
   };
 
-  const wireSettingsUI = (panel) => {
-    const toggleBtn = panel.querySelector("#qa-settings-toggle");
-    const settingsBox = panel.querySelector("#qa-settings");
+  const wireSettingsUI = (panel: HTMLElement) => {
+    ensureState();
 
-    const synonymsEl = panel.querySelector("#qa-ac-synonyms");
-    const optDom = panel.querySelector("#qa-opt-dom");
-    const optDesc = panel.querySelector("#qa-opt-desc");
-    const optGherkin = panel.querySelector("#qa-opt-gherkin");
+    const copilot = window.QA_COPILOT as QACopilotAPI;
 
-    const btnSave = panel.querySelector("#qa-settings-save");
-    const btnReset = panel.querySelector("#qa-settings-reset");
+    const toggleBtn = panel.querySelector("#qa-settings-toggle") as HTMLButtonElement | null;
+    const settingsBox = panel.querySelector("#qa-settings") as HTMLElement | null;
+
+    const synonymsEl = panel.querySelector("#qa-ac-synonyms") as HTMLTextAreaElement | null;
+    const optDom = panel.querySelector("#qa-opt-dom") as HTMLInputElement | null;
+    const optDesc = panel.querySelector("#qa-opt-desc") as HTMLInputElement | null;
+    const optGherkin = panel.querySelector("#qa-opt-gherkin") as HTMLInputElement | null;
+
+    const btnSave = panel.querySelector("#qa-settings-save") as HTMLButtonElement | null;
+    const btnReset = panel.querySelector("#qa-settings-reset") as HTMLButtonElement | null;
+
+    if (!toggleBtn || !settingsBox || !synonymsEl || !optDom || !optDesc || !optGherkin || !btnSave || !btnReset) {
+      return;
+    }
 
     const renderSettings = () => {
-      const s = window.QA_COPILOT.state.settings;
-      synonymsEl.value = (s.acSynonyms || []).join(", ");
-      optDom.checked = !!s.detectFromJiraFieldsDom;
-      optDesc.checked = !!s.detectFromDescription;
-      optGherkin.checked = !!s.detectFromGherkin;
+      const s = copilot.state.settings;
+      synonymsEl.value = (s?.acSynonyms || []).join(", ");
+      optDom.checked = !!s?.detectFromJiraFieldsDom;
+      optDesc.checked = !!s?.detectFromDescription;
+      optGherkin.checked = !!s?.detectFromGherkin;
     };
 
     toggleBtn.addEventListener("click", () => {
@@ -228,56 +316,59 @@
         .map((x) => x.trim())
         .filter(Boolean);
 
-      const defaults = window.QA_COPILOT.settings.DEFAULT_SETTINGS;
+      const defaults = copilot.settings.DEFAULT_SETTINGS;
 
-      window.QA_COPILOT.state.settings = {
-        ...window.QA_COPILOT.state.settings,
+      copilot.state.settings = {
+        ...copilot.state.settings,
         acSynonyms: parsed.length ? parsed : defaults.acSynonyms,
         detectFromJiraFieldsDom: optDom.checked,
         detectFromDescription: optDesc.checked,
         detectFromGherkin: optGherkin.checked,
       };
 
-      await window.QA_COPILOT.settings.save(window.QA_COPILOT.state.settings);
+      await copilot.settings.save(copilot.state.settings);
       flashSaved(panel);
 
-      const key = window.QA_COPILOT.state.lastIssueKey;
+      const key = copilot.state.lastIssueKey;
       if (key) renderIssue(key);
 
-      log("Settings saved:", window.QA_COPILOT.state.settings);
+      log("Settings saved:", copilot.state.settings);
     });
 
     btnReset.addEventListener("click", async () => {
-      window.QA_COPILOT.state.settings = {
-        ...window.QA_COPILOT.settings.DEFAULT_SETTINGS,
-      };
-      await window.QA_COPILOT.settings.save(window.QA_COPILOT.state.settings);
+      copilot.state.settings = { ...copilot.settings.DEFAULT_SETTINGS };
+      await copilot.settings.save(copilot.state.settings);
       flashSaved(panel);
       renderSettings();
 
-      const key = window.QA_COPILOT.state.lastIssueKey;
+      const key = copilot.state.lastIssueKey;
       if (key) renderIssue(key);
 
       log("Settings reset");
     });
   };
 
-  const wireActionsUI = (panel) => {
-    const btnChecklist = panel.querySelector("#qa-generate-checklist");
-    const btnBulk = panel.querySelector("#qa-generate-testcases-bulk");
+  const wireActionsUI = (panel: HTMLElement) => {
+    ensureState();
+    const copilot = window.QA_COPILOT as QACopilotAPI;
 
-    const statusEl = panel.querySelector("#qa-checklist-status");
-    const checklistEl = panel.querySelector("#qa-checklist");
-    const testcasesEl = panel.querySelector("#qa-testcases");
-    const testcasesStatusEl = panel.querySelector("#qa-testcases-status");
+    const btnChecklist = panel.querySelector("#qa-generate-checklist") as HTMLButtonElement | null;
+    const btnBulk = panel.querySelector("#qa-generate-testcases-bulk") as HTMLButtonElement | null;
 
-    const setLoading = (btn, loading, textLoading, textIdle) => {
+    const statusEl = panel.querySelector("#qa-checklist-status") as HTMLElement | null;
+    const checklistEl = panel.querySelector("#qa-checklist") as HTMLElement | null;
+    const testcasesEl = panel.querySelector("#qa-testcases") as HTMLElement | null;
+    const testcasesStatusEl = panel.querySelector("#qa-testcases-status") as HTMLElement | null;
+
+    if (!btnChecklist || !btnBulk || !statusEl || !checklistEl || !testcasesEl || !testcasesStatusEl) return;
+
+    const setLoading = (btn: HTMLButtonElement, loading: boolean, textLoading: string, textIdle: string) => {
       btn.disabled = loading;
       btn.style.opacity = loading ? "0.6" : "1";
       btn.textContent = loading ? textLoading : textIdle;
     };
 
-    const renderChecklist = (items) => {
+    const renderChecklist = (items: string[]) => {
       checklistEl.innerHTML = "";
       (items || []).forEach((x) => {
         const li = document.createElement("li");
@@ -286,7 +377,10 @@
       });
     };
 
-    const renderTestcases = (results) => {
+    const isBulkFail = (r: BulkResult): r is BulkResultFail => r.ok === false;
+
+
+    const renderTestcases = (results: BulkResult[]) => {
       testcasesEl.innerHTML = "";
 
       (results || []).forEach((r) => {
@@ -297,16 +391,17 @@
         card.style.marginTop = "8px";
         card.style.background = "#fafafa";
 
-        if (!r.ok) {
+        if (isBulkFail(r)) {
+          const err = r.error ?? "Error";
           card.innerHTML = `
-          <div style="font-weight:700; color:#b91c1c;">❌ Failed</div>
-          <div style="font-size:12px; color:#555; margin-top:6px;">
-            Seed: <b>${escapeHtml(r?.seed?.text || "")}</b>
-          </div>
-          <div style="font-size:12px; color:#b91c1c; margin-top:6px;">
-            ${escapeHtml(r?.error || "Error")}
-          </div>
-        `;
+            <div style="font-weight:700; color:#b91c1c;">❌ Failed</div>
+            <div style="font-size:12px; color:#555; margin-top:6px;">
+              Seed: <b>${escapeHtml(r?.seed?.text || "")}</b>
+            </div>
+            <div style="font-size:12px; color:#b91c1c; margin-top:6px;">
+              ${escapeHtml(err)}
+            </div>
+          `;
           testcasesEl.appendChild(card);
           return;
         }
@@ -317,43 +412,45 @@
         const payloadForCopy = toTestRailPlainText(tc);
 
         card.innerHTML = `
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-          <div style="font-weight:700;">${escapeHtml(tc.title)}</div>
-          <button class="qa-copy" style="border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer;">
-            Copy (TestRail)
-          </button>
-        </div>
-        <div style="font-size:12px; color:#555; margin-top:6px;">
-          From seed: ${escapeHtml(seedText)}
-        </div>
-        <div style="margin-top:8px; font-size:12px;">
-          <div><b>Preconditions:</b> ${escapeHtml(tc.preconditions || "None")}</div>
-          <div style="margin-top:6px;"><b>Steps:</b></div>
-          <ol style="margin:6px 0 0 18px; padding:0;">
-            ${(tc.steps || []).map((s) => `<li style="margin-bottom:4px;"><span>${escapeHtml(s.content)}</span><br/><span style="color:#555;">Expected: ${escapeHtml(s.expected)}</span></li>`).join("")}
-          </ol>
-        </div>
-      `;
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="font-weight:700;">${escapeHtml(tc.title)}</div>
+            <button class="qa-copy" style="border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer;">
+              Copy (TestRail)
+            </button>
+          </div>
+          <div style="font-size:12px; color:#555; margin-top:6px;">
+            From seed: ${escapeHtml(seedText)}
+          </div>
+          <div style="margin-top:8px; font-size:12px;">
+            <div><b>Preconditions:</b> ${escapeHtml(tc.preconditions || "None")}</div>
+            <div style="margin-top:6px;"><b>Steps:</b></div>
+            <ol style="margin:6px 0 0 18px; padding:0;">
+              ${(tc.steps || [])
+                .map(
+                  (s) =>
+                    `<li style="margin-bottom:4px;"><span>${escapeHtml(s.content)}</span><br/><span style="color:#555;">Expected: ${escapeHtml(
+                      s.expected
+                    )}</span></li>`
+                )
+                .join("")}
+            </ol>
+          </div>
+        `;
 
-        card.querySelector(".qa-copy").addEventListener("click", async () => {
+        const copyBtn = card.querySelector(".qa-copy") as HTMLButtonElement | null;
+        copyBtn?.addEventListener("click", async () => {
           try {
             await navigator.clipboard.writeText(payloadForCopy);
-            card.querySelector(".qa-copy").textContent = "Copied ✅";
-            setTimeout(
-              () =>
-                (card.querySelector(".qa-copy").textContent =
-                  "Copy (TestRail)"),
-              1200,
-            );
+            if (copyBtn) copyBtn.textContent = "Copied ✅";
+            setTimeout(() => {
+              if (copyBtn) copyBtn.textContent = "Copy (TestRail)";
+            }, 1200);
           } catch (e) {
             console.error(e);
-            card.querySelector(".qa-copy").textContent = "Copy failed ❌";
-            setTimeout(
-              () =>
-                (card.querySelector(".qa-copy").textContent =
-                  "Copy (TestRail)"),
-              1200,
-            );
+            if (copyBtn) copyBtn.textContent = "Copy failed ❌";
+            setTimeout(() => {
+              if (copyBtn) copyBtn.textContent = "Copy (TestRail)";
+            }, 1200);
           }
         });
 
@@ -361,10 +458,9 @@
       });
     };
 
-    // --- CHECKLIST (AI) ---
     btnChecklist.addEventListener("click", async () => {
       try {
-        const key = window.QA_COPILOT.state.lastIssueKey;
+        const key = copilot.state.lastIssueKey;
         if (!key) return;
 
         setLoading(btnChecklist, true, "Generating…", "Generate checklist");
@@ -375,24 +471,13 @@
 
         await new Promise((r) => setTimeout(r, 120));
 
-        const ctx = window.QA_COPILOT.jiraParser.extractTicketContext(key);
-        const hasAC = window.QA_COPILOT.acDetect.detectAcceptanceCriteria(
-          ctx.title,
-          ctx.description,
-        );
+        const ctx = copilot.jiraParser.extractTicketContext(key);
+        const hasAC = copilot.acDetect.detectAcceptanceCriteria(ctx.title, ctx.description);
 
-        const { qa_fn_url_checklist, qa_apikey } = await new Promise(
-          (resolve) => {
-            chrome.storage.local.get(
-              ["qa_fn_url_checklist", "qa_apikey"],
-              resolve,
-            );
-          },
-        );
+        const { qa_fn_url_checklist, qa_apikey } = await storageGet(["qa_fn_url_checklist", "qa_apikey"]);
 
         if (!qa_fn_url_checklist || !qa_apikey) {
-          statusEl.textContent =
-            "Brak konfiguracji w popupie (URL checklist + apikey).";
+          statusEl.textContent = "Brak konfiguracji w popupie (URL checklist + apikey).";
           return;
         }
 
@@ -401,7 +486,7 @@
           title: ctx.title || "",
           description: ctx.description || "",
           hasAcceptanceCriteria: !!hasAC,
-          signals: [],
+          signals: [] as string[],
         };
 
         const resp = await fetch(qa_fn_url_checklist, {
@@ -414,13 +499,10 @@
           body: JSON.stringify(payload),
         });
 
-        const data = await resp.json().catch(() => ({}));
+        const data = (await resp.json().catch(() => ({}))) as Partial<ChecklistResponse> & { ok?: boolean };
 
         if (!resp.ok || !data?.ok) {
-          console.error("Checklist function error:", {
-            status: resp.status,
-            data,
-          });
+          console.error("Checklist function error:", { status: resp.status, data });
           statusEl.textContent = "Błąd checklist (zobacz console) ❌";
           return;
         }
@@ -430,7 +512,7 @@
           return `${sev}${x.text ?? ""}`.trim();
         });
 
-        window.QA_COPILOT.state.lastChecklist = data.checklist; // ważne do bulk!
+        copilot.state.lastChecklist = data.checklist || null;
         renderChecklist(items);
         statusEl.textContent = `Generated ${items.length} items ✅`;
       } catch (e) {
@@ -441,13 +523,12 @@
       }
     });
 
-    // --- BULK TESTCASES ---
     btnBulk.addEventListener("click", async () => {
       try {
-        const key = window.QA_COPILOT.state.lastIssueKey;
+        const key = copilot.state.lastIssueKey;
         if (!key) return;
 
-        const checklist = window.QA_COPILOT.state.lastChecklist;
+        const checklist = copilot.state.lastChecklist;
         if (!checklist?.items?.length) {
           testcasesStatusEl.textContent = "Najpierw wygeneruj checklistę ✅";
           return;
@@ -459,19 +540,13 @@
 
         await new Promise((r) => setTimeout(r, 120));
 
-        const ctx = window.QA_COPILOT.jiraParser.extractTicketContext(key);
-        const hasAC = window.QA_COPILOT.acDetect.detectAcceptanceCriteria(
-          ctx.title,
-          ctx.description,
-        );
+        const ctx = copilot.jiraParser.extractTicketContext(key);
+        const hasAC = copilot.acDetect.detectAcceptanceCriteria(ctx.title, ctx.description);
 
-        const { qa_fn_url_bulk, qa_apikey } = await new Promise((resolve) => {
-          chrome.storage.local.get(["qa_fn_url_bulk", "qa_apikey"], resolve);
-        });
+        const { qa_fn_url_bulk, qa_apikey } = await storageGet(["qa_fn_url_bulk", "qa_apikey"]);
 
         if (!qa_fn_url_bulk || !qa_apikey) {
-          testcasesStatusEl.textContent =
-            "Brak konfiguracji w popupie (URL bulk + apikey).";
+          testcasesStatusEl.textContent = "Brak konfiguracji w popupie (URL bulk + apikey).";
           return;
         }
 
@@ -486,7 +561,7 @@
           title: ctx.title || "",
           description: ctx.description || "",
           hasAcceptanceCriteria: !!hasAC,
-          signals: [],
+          signals: [] as string[],
           seeds,
           options: { maxItems: 10 },
         };
@@ -501,7 +576,7 @@
           body: JSON.stringify(payload),
         });
 
-        const data = await resp.json().catch(() => ({}));
+        const data = (await resp.json().catch(() => ({}))) as Partial<BulkResponse> & { ok?: boolean };
 
         if (!resp.ok || !data?.ok) {
           console.error("Bulk function error:", { status: resp.status, data });
@@ -509,7 +584,7 @@
           return;
         }
 
-        renderTestcases(data.results || []);
+        renderTestcases((data.results || []) as BulkResult[]);
         testcasesStatusEl.textContent = `Generated ${data?.stats?.ok ?? 0} test cases ✅ (errors: ${data?.stats?.errors ?? 0})`;
       } catch (e) {
         console.error(e);
@@ -520,20 +595,17 @@
     });
   };
 
-  // helpers:
-  function escapeHtml(s) {
-    return String(s ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
+  function escapeHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-  function toTestRailPlainText(tc) {
-    // Na start: zwykły tekst do wklejenia w TestRail.
-    // Później zmapujemy to na prawdziwy payload API.
-    const lines = [];
+  function toTestRailPlainText(tc: Testcase) {
+    const lines: string[] = [];
     lines.push(`Title: ${tc.title}`);
     lines.push(`Preconditions: ${tc.preconditions || "None"}`);
     lines.push("");
@@ -545,56 +617,53 @@
     return lines.join("\n");
   }
 
-  const renderIssue = (issueKey) => {
+  const renderIssue = (issueKey: string) => {
     const panel = ensurePanelMounted();
+    ensureState();
 
-    // reset checklist on issue change
-    const statusEl = panel.querySelector("#qa-checklist-status");
-    const listEl = panel.querySelector("#qa-checklist");
+    const copilot = window.QA_COPILOT as QACopilotAPI;
+
+    const statusEl = panel.querySelector("#qa-checklist-status") as HTMLElement | null;
+    const listEl = panel.querySelector("#qa-checklist") as HTMLElement | null;
     if (statusEl) statusEl.textContent = "";
     if (listEl) listEl.innerHTML = "";
 
     const tryParseAndRender = (attempt = 1) => {
-      const ctx = window.QA_COPILOT.jiraParser.extractTicketContext(issueKey);
+      const ctx = copilot.jiraParser.extractTicketContext(issueKey);
 
-      panel.querySelector("#qa-copilot-issue").textContent =
-        `Issue: ${issueKey}`;
-      panel.querySelector("#qa-title").textContent =
-        ctx.title || "(not found yet)";
-      panel.querySelector("#qa-desc").textContent =
-        ctx.descriptionPreview || "(empty / not found yet)";
+      const issueEl = panel.querySelector("#qa-copilot-issue") as HTMLElement | null;
+      const titleEl = panel.querySelector("#qa-title") as HTMLElement | null;
+      const descEl = panel.querySelector("#qa-desc") as HTMLElement | null;
+      const hasAcEl = panel.querySelector("#qa-hasac") as HTMLElement | null;
+      const signalsEl = panel.querySelector("#qa-copilot-signals") as HTMLElement | null;
 
-      const hasAC = window.QA_COPILOT.acDetect.detectAcceptanceCriteria(
-        ctx.title,
-        ctx.description,
-      );
+      if (issueEl) issueEl.textContent = `Issue: ${issueKey}`;
+      if (titleEl) titleEl.textContent = ctx.title || "(not found yet)";
+      if (descEl) descEl.textContent = ctx.descriptionPreview || "(empty / not found yet)";
 
-      panel.querySelector("#qa-hasac").textContent = hasAC
-        ? "✅ yes"
-        : "❌ no / not detected";
+      const hasAC = copilot.acDetect.detectAcceptanceCriteria(ctx.title, ctx.description);
+      if (hasAcEl) hasAcEl.textContent = hasAC ? "✅ yes" : "❌ no / not detected";
 
-      const signalsEl = panel.querySelector("#qa-copilot-signals");
-      signalsEl.innerHTML = "";
-      const signals = [];
+      if (signalsEl) {
+        signalsEl.innerHTML = "";
+        const signals: string[] = [];
 
-      if (!ctx.title) signals.push("Could not read title (DOM not ready yet)");
-      if (!ctx.description) signals.push("No description detected");
-      if (!hasAC) signals.push("No acceptance criteria detected");
+        if (!ctx.title) signals.push("Could not read title (DOM not ready yet)");
+        if (!ctx.description) signals.push("No description detected");
+        if (!hasAC) signals.push("No acceptance criteria detected");
+        if (signals.length === 0) signals.push("Basic parsing OK ✅");
 
-      if (signals.length === 0) signals.push("Basic parsing OK ✅");
-
-      signals.forEach((s) => {
-        const li = document.createElement("li");
-        li.textContent = s;
-        signalsEl.appendChild(li);
-      });
+        signals.forEach((s) => {
+          const li = document.createElement("li");
+          li.textContent = s;
+          signalsEl.appendChild(li);
+        });
+      }
 
       log("ticketContext:", { ...ctx, hasAcceptanceCriteria: hasAC });
 
       const domNotReady = !ctx.title && !ctx.description;
-      if (domNotReady && attempt < 5) {
-        setTimeout(() => tryParseAndRender(attempt + 1), 400);
-      }
+      if (domNotReady && attempt < 5) setTimeout(() => tryParseAndRender(attempt + 1), 400);
     };
 
     tryParseAndRender();
@@ -605,8 +674,7 @@
     if (panel) panel.remove();
   };
 
-  window.QA_COPILOT.panel = {
-    renderIssue,
-    cleanup,
-  };
+  // attach API
+  window.QA_COPILOT = window.QA_COPILOT || {};
+  (window.QA_COPILOT as QACopilotAPI).panel = { renderIssue, cleanup };
 })();

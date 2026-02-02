@@ -1,13 +1,16 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "types": ["chrome"],
     "outDir": "dist",
     "rootDir": "extensions/src",
-    "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noEmitOnError": false,
+    "strict": false
   },
-  "include": ["extensions/src/**/*.ts"],
+  "include": ["extensions/src/**/*.ts", "extensions/src/**/*.d.ts"],
   "exclude": ["node_modules", "dist"]
 }

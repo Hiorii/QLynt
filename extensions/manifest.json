@@ -9,15 +9,15 @@
     {
       "matches": ["https://*.atlassian.net/*"],
       "js": [
-        "src/core/bootstrap.js",
-        "src/core/dom.js",
-        "src/features/settings.store.js",
-        "src/core/jira-parser.js",
-        "src/features/ac.detect.js",
-        "src/features/checklist.dryrun.js",
-        "src/ui/panel.js",
-        "src/core/issue-detect.js",
-        "src/content.js"
+        "dist/core/bootstrap.js",
+        "dist/core/dom.js",
+        "dist/features/settings.store.js",
+        "dist/core/jira-parser.js",
+        "dist/features/ac.detect.js",
+        "dist/features/checklist.dryrun.js",
+        "dist/ui/panel.js",
+        "dist/core/issue-detect.js",
+        "dist/content.js"
       ],
       "run_at": "document_idle"
     }
